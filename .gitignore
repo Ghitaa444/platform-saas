@@ -1,0 +1,20 @@
+# Ignorer les fichiers d'environnement
+.env
+
+# Ignorer le dossier de l'environnement virtuel Python
+venv/
+__pycache__/
+
+# Ignorer les fichiers de base de données (si SQLite ou autres fichiers locaux)
+*.sqlite3
+*.db
+
+# Ignorer les migrations Alembic (le dossier lui-même peut être versionné, mais pas certains fichiers)
+# migrations/versions/ # Ne pas ignorer le dossier des versions si vous voulez suivre les migrations.
+# Généralement, vous versionnez le dossier migrations/ et son contenu.
+
+# Docker
+.dockerignore # Le fichier .dockerignore lui-même n'est pas ignoré, mais c'est une bonne place pour le noter
+
+# Fichiers logs (si vous en générez)
+*.log

@@ -1,0 +1,46 @@
+# docker-compose.yml (à la racine du projet SaaS)
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13-alpine
+    container_name: saas_postgres_db
+    environment:
+      POSTGRES_DB: Saas_db
+      POSTGRES_USER: postger
+      POSTGRES_PASSWORD: saas_password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: . # Le contexte de construction est la racine de votre projet (là où se trouve docker-compose.yml et Dockerfile)
+      dockerfile: Dockerfile # Le Dockerfile est nommé 'Dockerfile' et est directement dans ce contexte (la racine)
+    container_name: saas_backend
+    ports:
+      - "5000:5000"
+    environment:
+      FLASK_APP: backend/app.py
+      FLASK_ENV: development
+      SQLALCHEMY_DATABASE_URI: postgresql://Ritadev2025@db:5432/Saas_db
+      JWT_SECRET_KEY: 80dad8c98d3868941d22603c7381dca7755b54870db267ea032abd4553243274 
+      # Pour l'interaction avec le démon Docker de l'hôte (si nécessaire)
+      # DOCKER_HOST: "unix:///var/run/docker.sock"
+    depends_on:
+      - db
+    networks:
+      - app_network
+    # Si votre backend doit interagir avec le démon Docker de l'hôte
+    # volumes:
+    #   - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+volumes:
+  db_data:
+
+networks:
+  app_network:
+    driver: bridge
