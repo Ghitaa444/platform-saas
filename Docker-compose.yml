@@ -1,5 +1,4 @@
 # docker-compose.yml (à la racine du projet SaaS)
-version: '3.8'
 
 services:
   db:
@@ -7,40 +6,45 @@ services:
     container_name: saas_postgres_db
     environment:
       POSTGRES_DB: Saas_db
-      POSTGRES_USER: postger
-      POSTGRES_PASSWORD: saas_password
+      POSTGRES_USER: ${POSTGRES_USER} 
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD} 
+    ports:
+      - "5432:5432" # Le port PostgreSQL est exposé
     volumes:
       - db_data:/var/lib/postgresql/data
     networks:
       - app_network
     restart: unless-stopped
 
-  backend:
+  backend: # C'est le nom de votre service backend !
     build:
-      context: . # Le contexte de construction est la racine de votre projet (là où se trouve docker-compose.yml et Dockerfile)
-      dockerfile: Dockerfile # Le Dockerfile est nommé 'Dockerfile' et est directement dans ce contexte (la racine)
-    container_name: saas_backend
+      context: .
+      dockerfile: Dockerfile
+    container_name: saas_backend # Ceci est juste le nom du conteneur, le nom du SERVICE est 'backend'
     ports:
       - "5000:5000"
     environment:
       FLASK_APP: backend/app.py
       FLASK_ENV: development
-      SQLALCHEMY_DATABASE_URI: postgresql://Ritadev2025@db:5432/Saas_db
-      JWT_SECRET_KEY: 80dad8c98d3868941d22603c7381dca7755b54870db267ea032abd4553243274 
-      # Pour l'interaction avec le démon Docker de l'hôte (si nécessaire)
-      # DOCKER_HOST: "unix:///var/run/docker.sock"
+      # LA CORRECTION : Utilisez 'DATABASE_URL' pour correspondre à ce que 'os.getenv' cherche dans config.py
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/Saas_db
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      # CRUCIAL : Pour que votre service backend puisse interagir avec le démon Docker de l'hôte
+      DOCKER_HOST: "unix:///var/run/docker.sock"
     depends_on:
-      - db
+      - db # S'assure que le service 'db' démarre avant 'backend'
     networks:
       - app_network
-    # Si votre backend doit interagir avec le démon Docker de l'hôte
-    # volumes:
-    #   - /var/run/docker.sock:/var/run/docker.sock
+    # TRÈS IMPORTANT : Monte le socket Docker de l'hôte dans le conteneur,
+    # permettant au backend Flask d'exécuter des commandes Docker (via DockerService).
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
 volumes:
-  db_data:
+  db_data: # Volume pour persister les données PostgreSQL
 
 networks:
   app_network:
-    driver: bridge
+    driver: bridge # Réseau interne pour la communication entre les services

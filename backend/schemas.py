@@ -1,8 +1,9 @@
 # backend/schemas.py
 
 from marshmallow import Schema, fields, validate
+
 # You might need to import your models if your schemas reference them for metadata
-# from models import User, Container
+# from .models import User, Container # <-- ملاحظة: إذا كنت تستخدم هذه في مكان آخر في schemas، قم بإلغاء التعليق
 
 # --- User Schemas ---
 
@@ -19,7 +20,7 @@ class UserLoginSchema(Schema):
 
 # Schema for serializing User objects for output (what you send back in API responses)
 class UserSchema(Schema):
-    id = fields.Int(dump_only=True)  # Read-only field
+    id = fields.Int(dump_only=True) 
     username = fields.Str(required=True)
     email = fields.Email(required=True)
     created_at = fields.DateTime(dump_only=True)
@@ -32,7 +33,7 @@ class ContainerCreateSchema(Schema):
     name = fields.Str(required=True, validate=validate.Length(min=3, max=100))
     image = fields.Str(required=True, validate=validate.Length(max=200))
     ports = fields.Str(allow_none=True, metadata={'description': 'Comma-separated list of host_port:container_port (e.g., "80:8080,443:4443")'})
-    # You might add environment variables, volumes, etc. here
+    environment = fields.Dict(allow_none=True, metadata={'description': 'Dictionary of environment variables (e.g., {"KEY": "VALUE"})'})
 
 # Schema for serializing Container objects for output
 class ContainerSchema(Schema):
@@ -42,14 +43,12 @@ class ContainerSchema(Schema):
     image = fields.Str(required=True)
     docker_container_id = fields.Str(dump_only=True)
     status = fields.Str(dump_only=True)
+    environment = fields.Dict(dump_only=True)
     ports = fields.Str(allow_none=True)
     created_at = fields.DateTime(dump_only=True)
     updated_at = fields.DateTime(dump_only=True)
 
 
-# Instantiate schemas for easy import in other modules
-# This makes it easier to import specific instances like `user_register_schema`
-# instead of creating a new instance every time.
 user_register_schema = UserRegisterSchema()
 user_login_schema = UserLoginSchema()
 user_schema = UserSchema()
