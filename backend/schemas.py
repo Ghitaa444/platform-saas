@@ -1,57 +1,63 @@
-# backend/schemas.py
-
 from marshmallow import Schema, fields, validate
+from marshmallow.validate import Length, And, Regexp
 
-# You might need to import your models if your schemas reference them for metadata
-# from .models import User, Container # <-- ملاحظة: إذا كنت تستخدم هذه في مكان آخر في schemas، قم بإلغاء التعليق
-
-# --- User Schemas ---
-
-# Schema for validating user registration input (e.g., in auth.py's register route)
 class UserRegisterSchema(Schema):
-    username = fields.Str(required=True, validate=validate.Length(min=3, max=80))
-    email = fields.Email(required=True, validate=validate.Length(max=120))
-    password = fields.Str(required=True, validate=validate.Length(min=6))
+    username = fields.Str(required=True, validate=Length(min=3, max=80))
+    email = fields.Email(required=True, validate=Length(max=120))
+    password = fields.Str(required=True, validate=Length(min=6)) 
 
-# Schema for validating user login input (e.g., in auth.py's login route)
 class UserLoginSchema(Schema):
     username = fields.Str(required=True)
     password = fields.Str(required=True)
 
-# Schema for serializing User objects for output (what you send back in API responses)
 class UserSchema(Schema):
-    id = fields.Int(dump_only=True) 
-    username = fields.Str(required=True)
-    email = fields.Email(required=True)
+    id = fields.Int(dump_only=True)
+    username = fields.Str(dump_only=True)
+    email = fields.Email(dump_only=True)
     created_at = fields.DateTime(dump_only=True)
     updated_at = fields.DateTime(dump_only=True)
 
-# --- Container Schemas ---
+class ForgotPasswordRequestSchema(Schema):
+    email = fields.Email(required=True, validate=Length(max=120))
 
-# Schema for validating container creation input (e.g., in container_routes.py's create_container route)
-class ContainerCreateSchema(Schema):
-    name = fields.Str(required=True, validate=validate.Length(min=3, max=100))
-    image = fields.Str(required=True, validate=validate.Length(max=200))
-    ports = fields.Str(allow_none=True, metadata={'description': 'Comma-separated list of host_port:container_port (e.g., "80:8080,443:4443")'})
-    environment = fields.Dict(allow_none=True, metadata={'description': 'Dictionary of environment variables (e.g., {"KEY": "VALUE"})'})
+class ResetPasswordSchema(Schema):
+    token = fields.Str(required=True, validate=Length(min=32))
+    new_password = fields.Str(required=True, validate=Length(min=10)) 
 
-# Schema for serializing Container objects for output
 class ContainerSchema(Schema):
     id = fields.Int(dump_only=True)
-    user_id = fields.Int(dump_only=True)
-    name = fields.Str(required=True)
-    image = fields.Str(required=True)
-    docker_container_id = fields.Str(dump_only=True)
-    status = fields.Str(dump_only=True)
-    environment = fields.Dict(dump_only=True)
-    ports = fields.Str(allow_none=True)
+    name = fields.Str(required=True, validate=validate.Length(min=1, max=128))
+    image = fields.Str(required=True, validate=validate.Length(min=1))
+    status = fields.Str(dump_only=True) 
+    docker_container_id = fields.Str(dump_only=True) 
+    ports = fields.Dict(allow_none=True)
+    environment = fields.Dict(allow_none=True) 
     created_at = fields.DateTime(dump_only=True)
     updated_at = fields.DateTime(dump_only=True)
+    user_id = fields.Int(dump_only=True) # To link to the user who owns it
 
+# Schema for creating a new container (what user sends in POST request)
+class CreateContainerSchema(Schema):
+    name = fields.Str(required=True, validate=validate.Length(min=1, max=128))
+    image = fields.Str(required=True, validate=validate.Length(min=1))
+    ports = fields.Dict(keys=fields.Str(), values=fields.Str(), allow_none=True) # Optional: e.g., {"80/tcp": "8080"}
+    environment = fields.Dict(keys=fields.Str(), values=fields.Str(), allow_none=True) # Optional: e.g., {"MY_VAR": "my_value"}
 
+# Schema for updating an existing container (what user sends in PUT request)
+class UpdateContainerSchema(Schema):
+    name = fields.Str(validate=validate.Length(min=1, max=128), required=False) # Optional for partial updates
+    ports = fields.Dict(keys=fields.Str(), values=fields.Str(), allow_none=True, required=False)
+    environment = fields.Dict(keys=fields.Str(), values=fields.Str(), allow_none=True, required=False)
+
+# User schema instances
 user_register_schema = UserRegisterSchema()
 user_login_schema = UserLoginSchema()
 user_schema = UserSchema()
-container_create_schema = ContainerCreateSchema()
+
+forgot_password_request_schema = ForgotPasswordRequestSchema()
+reset_password_schema = ResetPasswordSchema()
+
 container_schema = ContainerSchema()
-containers_schema = ContainerSchema(many=True) # For lists of containers
+containers_schema = ContainerSchema(many=True)
+create_container_schema = CreateContainerSchema() 
+update_container_schema = UpdateContainerSchema()

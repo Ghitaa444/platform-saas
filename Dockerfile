@@ -1,18 +1,23 @@
-# Use a slim Python image
+# Use the official Python image as a base
 FROM python:3.11-slim-buster
 
-# Set the working directory inside the container
+# Set the working directory to /app inside the container.
 WORKDIR /app
 
-# Copy only requirements.txt first to leverage Docker cache
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy all the rest of your application code, including alembic.ini and migrations folder
-# The '.' at the end means "copy to the current working directory (/app)"
+# Copy the entire project directory into the container.
 COPY . .
 
-# Command to run the application using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "backend.app:app"]
+# Set the PYTHONPATH to include the /app directory.
+ENV PYTHONPATH=/app
+
+# Install dependencies.
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Expose the port the app runs on.
+EXPOSE 5000
+
+# Set the FLASK_APP environment variable.
+ENV FLASK_APP=backend/app.py
+
+# Run the application with Gunicorn.
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--timeout", "120", "backend.app:app"]

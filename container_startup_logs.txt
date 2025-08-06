@@ -1,0 +1,28 @@
+Attaching to saas_backend, saas_postgres_db
+saas_postgres_db  | 
+saas_postgres_db  | PostgreSQL Database directory appears to contain a database; Skipping initialization
+saas_postgres_db  | 
+saas_postgres_db  | 2025-07-22 20:32:17.827 UTC [1] LOG:  starting PostgreSQL 13.21 on x86_64-pc-linux-musl, compiled by gcc (Alpine 14.2.0) 14.2.0, 64-bit
+saas_postgres_db  | 2025-07-22 20:32:17.828 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+saas_postgres_db  | 2025-07-22 20:32:17.828 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+saas_postgres_db  | 2025-07-22 20:32:17.843 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+saas_postgres_db  | 2025-07-22 20:32:17.861 UTC [28] LOG:  database system was shut down at 2025-07-22 20:32:01 UTC
+saas_postgres_db  | 2025-07-22 20:32:17.878 UTC [1] LOG:  database system is ready to accept connections
+saas_backend      | [2025-07-22 20:32:18 +0000] [1] [INFO] Starting gunicorn 21.2.0
+saas_backend      | [2025-07-22 20:32:18 +0000] [1] [INFO] Listening at: http://0.0.0.0:5000 (1)
+saas_backend      | [2025-07-22 20:32:18 +0000] [1] [INFO] Using worker: sync
+saas_backend      | [2025-07-22 20:32:18 +0000] [7] [INFO] Booting worker with pid: 7
+saas_backend      | 2025-07-22 20:32:19,444 INFO: DEBUG (config.py - Before load_dotenv): SQLALCHEMY_DATABASE_URI is postgresql://postgres:Ritadev2025@db:5432/Saas_db
+saas_backend      | 2025-07-22 20:32:19,445 INFO: DEBUG (config.py): Attempting to load .env from path: /app/backend/../.env
+saas_backend      | 2025-07-22 20:32:19,445 INFO: DEBUG (config.py): Does .env file exist at path? True
+saas_backend      | 2025-07-22 20:32:19,447 INFO: DEBUG (config.py - After load_dotenv): SQLALCHEMY_DATABASE_URI is postgresql://postgres:Ritadev2025@db:5432/Saas_db
+saas_backend      | 2025-07-22 20:32:19,539 INFO: SQLALCHEMY_DATABASE_URI vue par Flask (app.config): postgresql://postgres:Ritadev2025@db:5432/Saas_db
+saas_backend      | 2025-07-22 20:32:19,638 INFO: Client Docker connecté et daemon accessible !
+saas_backend      | 2025-07-22 20:32:19,638 INFO: Base de données, JWT, Migrate et DockerService initialisés.
+saas_backend      | 2025-07-22 20:32:19,684 INFO: Blueprints enregistrés.
+Gracefully stopping... (press Ctrl+C again to force)
+ Container saas_backend  Stopping
+ Container saas_backend  Stopped
+ Container saas_postgres_db  Stopping
+ Container saas_postgres_db  Stopped
+

@@ -1,354 +1,313 @@
-# backend/routes/container_routes.py
-
-from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from backend.schemas import container_create_schema, container_schema
-from backend.models import Container, User
-from backend.database import db
 import logging
-# --- NEW IMPORTS ---
-from docker.errors import NotFound, APIError
-# --- END NEW IMPORTS ---
+from flask import Blueprint, jsonify, request, current_app
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from backend.models import User, Container
+from backend.database import db
+from backend.services.docker_service import DockerServiceException
+from docker.errors import APIError
+from sqlalchemy.exc import IntegrityError
+import json
 
-container_bp = Blueprint('containers', __name__, url_prefix='/containers')
 logger = logging.getLogger(__name__)
 
-@container_bp.route('/', methods=['POST'])
+container_bp = Blueprint('container_bp', __name__, url_prefix='/api/containers')
+
+@container_bp.route('/create', methods=['POST'])
 @jwt_required()
 def create_container():
-    logger.info("Received request to create a container.")
+    user_id = get_jwt_identity()
+    user = User.query.get(int(user_id))
 
-    try:
-        container_data = container_create_schema.load(request.json)
-        logger.debug(f"Container data loaded: {container_data}")
-    except Exception as e:
-        logger.error(f"Validation error for container creation: {e.messages}", exc_info=True)
-        return jsonify({"error": "Validation failed", "details": e.messages}), 400
+    if not user:
+        logger.warning(f"Tentative de création de conteneur par utilisateur inconnu: {user_id}")
+        return jsonify({"message": "Utilisateur non trouvé"}), 404
 
-    current_user_id = get_jwt_identity()
-    logger.debug(f"Current user ID from JWT: {current_user_id}")
+    data = request.get_json()
+    if not data:
+        return jsonify({"message": "Données JSON manquantes"}), 400
 
-    # Ensure Docker service is initialized before trying to use its client
-    if not current_app.docker_service or not current_app.docker_service._check_client():
-        logger.error("Docker service is not initialized or client is not available.")
-        return jsonify({"error": "Docker service is not available"}), 503 # Use 503 Service Unavailable
-
-    try:
-        name = container_data['name']
-        image = container_data['image']
-        ports_str = container_data.get('ports')
-
-        logger.info(f"Attempting to create Docker container: Name={name}, Image={image}, Ports={ports_str}")
-        docker_container = current_app.docker_service.create_and_run_container( # Use new method name
-            name=name,
-            image=image,
-            ports=ports_str # Pass the raw string to the new parser
-        )
-
-        if not docker_container:
-            logger.error(f"Failed to create Docker container for image {image}.")
-            return jsonify({"error": "Failed to create Docker container"}), 500
-
-        logger.info(f"Docker container created successfully: {docker_container.id}")
-        new_container = Container(
-            user_id=current_user_id,
-            name=name,
-            image=image,
-            docker_container_id=docker_container.id,
-            status=docker_container.status, # 'running' or similar
-            ports=ports_str # Store the raw string back
-        )
-        db.session.add(new_container)
-        db.session.commit()
-        logger.info(f"Container saved to DB: {new_container.id}")
-
-        return jsonify({
-            "message": "Container created and started successfully",
-            "container": container_schema.dump(new_container)
-        }), 201
-
-    except ValueError as ve: # Catch parsing errors from _parse_ports_string
-        db.session.rollback()
-        logger.error(f"Port parsing error during container creation: {ve}", exc_info=True)
-        return jsonify({"error": str(ve)}), 400
-    except APIError as e:
-        db.session.rollback()
-        logger.error(f"Docker API error during container creation: {e}", exc_info=True)
-        return jsonify({"error": f"Docker API error: {e}"}), 500
-    except Exception as e:
-        db.session.rollback()
-        logger.critical(f"An unexpected error occurred during container creation: {e}", exc_info=True)
-        return jsonify({"error": "An internal error occurred during container creation"}), 500
-
-
-@container_bp.route('/', methods=['GET'])
-@jwt_required()
-def list_containers():
-    logger.info("Received request to list containers.")
-
-    current_user_id = get_jwt_identity()
-    logger.debug(f"Current user ID from JWT: {current_user_id}")
-
-    user_containers = Container.query.filter_by(user_id=current_user_id).all()
-    logger.debug(f"Found {len(user_containers)} containers for user {current_user_id}.")
-
+    # FIXED: Read keys that the frontend is actually sending
+    container_name = data.get('container_name')
+    image_name = data.get('image_name')
     
-    return jsonify(container_schema.dump(user_containers, many=True)), 200
+    # FIXED: Ports are sent as a list, but docker-py expects a dictionary.
+    # Convert the list to the correct dictionary format.
+    ports_list = data.get('ports', [])
+    ports_dict = {}
+    ports_for_db = [] # This will be the list of strings for the database
 
-# --- REFURBISHED STOP ROUTE ---
-@container_bp.route('/<int:container_db_id>/stop', methods=['POST'])
-@jwt_required()
-def stop_container(container_db_id):
-    logger.info(f"Received request to stop container with DB ID: {container_db_id}")
+    for p in ports_list:
+        try:
+            host_port, container_port = p.split(':')
+            ports_dict[f"{container_port}/tcp"] = int(host_port)
+            ports_for_db.append(p)
+        except (ValueError, IndexError):
+            logger.warning(f"Format de port invalide dans la requête: {p}. Ignoré.")
+    
+    # FIXED: Ensure environment is a dictionary for the Docker service call.
+    environment_data = data.get('environment', {})
+    if isinstance(environment_data, str):
+        environment_dict = {}
+    elif isinstance(environment_data, dict):
+        environment_dict = environment_data
+    else:
+        environment_dict = {}
 
-    current_user_id = get_jwt_identity()
-    logger.debug(f"Current user ID from JWT: {current_user_id}")
+    network = data.get('network')
+    volumes = data.get('volumes', [])
+    cpu_shares = data.get('cpu_shares')
+    memory = data.get('memory')
+    
+    command_to_run = None
+    if image_name and image_name.startswith('nginx'):
+        command_to_run = ["nginx", "-g", "daemon off;"]
 
-    container = Container.query.filter_by(id=container_db_id, user_id=current_user_id).first()
+    if not image_name or not container_name:
+        logger.warning(f"Requête invalide pour la création de conteneur par {user.username}: image_name ou container_name manquant")
+        return jsonify({"message": "Nom de l'image et nom du conteneur sont requis"}), 400
 
-    if not container:
-        logger.warning(f"Container with DB ID {container_db_id} not found or not owned by user {current_user_id}.")
-        return jsonify({"error": "Container not found or not authorized"}), 404
-
-    # Ensure Docker service is available before attempting Docker operations
-    if not current_app.docker_service or not current_app.docker_service._check_client():
-        logger.error("Docker service is not initialized or client is not available.")
-        return jsonify({"error": "Docker service is not available"}), 503 # Service Unavailable
+    if not current_app.docker_service or not current_app.docker_service.client:
+        logger.error("DockerService non initialisé ou client Docker non disponible.")
+        return jsonify({"message": "Service Docker non disponible"}), 500
 
     try:
-        logger.info(f"Attempting to stop Docker container '{container.name}' (Docker ID: {container.docker_container_id})")
-        # Call the docker_service method. It will raise an exception on failure.
-        current_app.docker_service.stop_container(container.docker_container_id)
+        # Check if a container with that name already exists for the user in the database
+        existing_container_db = Container.query.filter_by(name=container_name, user_id=user.id).first()
+        if existing_container_db:
+            logger.warning(f"Tentative de création d'un conteneur en double: {container_name} pour utilisateur {user.username}")
+            return jsonify({"message": f"Un conteneur avec le nom '{container_name}' existe déjà pour cet utilisateur."}), 409
 
-        # After successful stop, get the *actual* updated status from Docker
-        updated_docker_status = current_app.docker_service.get_container_status(container.docker_container_id)
+        # Call Docker service to create the container with the corrected data
+        container_obj = current_app.docker_service.create_container(
+            image=image_name,
+            name=container_name,
+            ports=ports_dict,  # FIXED: Use the corrected ports dictionary
+            environment=environment_dict, # FIXED: Use the corrected environment dictionary
+            network=network,
+            volumes=volumes,
+            cpu_shares=cpu_shares,
+            memory=memory,
+            command=command_to_run
+        )
+        
+        docker_container_id = container_obj.id
+        docker_container_name = container_obj.name
+        docker_container_status = 'created'
 
-        # Update DB status
-        container.status = updated_docker_status if updated_docker_status else "unknown" # Fallback if status couldn't be retrieved
-        db.session.commit()
-        logger.info(f"Container {container.name} (DB ID: {container_db_id}) status updated to '{container.status}' in DB.")
+        if not docker_container_id:
+            logger.error(f"Échec de la création du conteneur Docker pour {user.username}: {container_name} - Pas d'ID Docker retourné.")
+            return jsonify({"message": "Échec de la création du conteneur Docker (pas d'ID retourné)"}), 500
 
-        return jsonify({
-            "message": "Container stopped successfully",
-            "container": container_schema.dump(container)
-        }), 200
+        try:
+            # Create a new database record
+            new_container = Container(
+                docker_container_id=docker_container_id,
+                name=docker_container_name,
+                image=image_name,
+                status=docker_container_status,
+                user_id=user.id,
+                # FIXED: Use the list of ports for the database
+                ports=json.dumps(ports_for_db),
+                environment=json.dumps(environment_dict)
+            )
+            db.session.add(new_container)
+            db.session.commit()
 
-    except NotFound:
-        # This occurs if docker_service.stop_container or get_container_status raises NotFound
-        db.session.rollback()
-        logger.error(f"Container '{container.docker_container_id}' not found on Docker daemon for stopping or status check.")
-        return jsonify({"error": "Container not found on Docker daemon"}), 404
+            logger.info(f"Conteneur '{docker_container_name}' créé avec succès pour l'utilisateur {user.username}. Docker ID: {docker_container_id}")
+            return jsonify({
+                "message": "Conteneur créé avec succès et enregistré en base de données",
+                "container": {
+                    "id": new_container.id,
+                    "docker_id": new_container.docker_container_id,
+                    "name": new_container.name,
+                    "image": new_container.image,
+                    "status": new_container.status,
+                    "user_id": new_container.user_id,
+                    "ports": json.loads(new_container.ports) if new_container.ports else [],
+                    "environment": json.loads(new_container.environment) if new_container.environment else {}
+                }
+            }), 201
+        
+        except IntegrityError:
+            db.session.rollback()
+            logger.error(f"Erreur de contrainte d'unicité lors de l'enregistrement en DB. Tentative de suppression du conteneur Docker: {container_name} (ID: {docker_container_id}).")
+            try:
+                current_app.docker_service.delete_container(docker_container_id)
+                return jsonify({"message": f"Conteneur créé dans Docker, mais échec de l'enregistrement en base de données car un conteneur du même nom existe déjà. Le conteneur a été supprimé de Docker."}), 409
+            except Exception as delete_error:
+                logger.error(f"Échec de la suppression du conteneur Docker après une erreur de base de données. Erreur: {str(delete_error)}", exc_info=True)
+                return jsonify({"message": f"Conteneur créé dans Docker, mais échec de l'enregistrement en base de données. Échec de la suppression du conteneur de Docker. Veuillez le supprimer manuellement."}), 500
+        
+        except Exception as db_error:
+            db.session.rollback()
+            logger.critical(f"Erreur CRITIQUE lors de l'enregistrement en BD. Tentative de suppression du conteneur Docker: {container_name} (ID: {docker_container_id}). Erreur: {str(db_error)}", exc_info=True)
+            try:
+                current_app.docker_service.delete_container(docker_container_id)
+                return jsonify({"message": f"Conteneur créé dans Docker, mais échec de l'enregistrement en base de données. Le conteneur a été supprimé. Erreur: {str(db_error)}"}), 500
+            except Exception as delete_error:
+                logger.error(f"Échec de la suppression du conteneur Docker après une erreur de base de données. Erreur: {str(delete_error)}", exc_info=True)
+                return jsonify({"message": f"Conteneur créé dans Docker, mais échec de l'enregistrement en base de données. Échec de la suppression du conteneur de Docker. Veuillez le supprimer manuellement."}), 500
+
     except APIError as e:
-        # This catches any general Docker API errors
         db.session.rollback()
-        logger.error(f"Docker API error stopping container {container.docker_container_id}: {e}", exc_info=True)
-        return jsonify({"error": f"Docker API error: {e}"}), 500
+        if 'Conflict' in str(e) and 'container with that name already exists' in str(e):
+            return jsonify({"message": f"Un conteneur avec le nom '{container_name}' existe déjà dans Docker. Veuillez en choisir un autre."}), 409
+        else:
+            logger.error(f"Erreur de l'API Docker lors de la création du conteneur: {e}", exc_info=True)
+            return jsonify({"message": f"Erreur de l'API Docker: {str(e)}"}), 500
+    
+    except DockerServiceException as e:
+        db.session.rollback()
+        logger.error(f"Erreur du service Docker lors de la création du conteneur: {e}", exc_info=True)
+        return jsonify({"message": str(e)}), 500
     except Exception as e:
-        # Catch any other unexpected errors
         db.session.rollback()
-        logger.critical(f"An unexpected error occurred while stopping container {container_db_id}: {e}", exc_info=True)
-        return jsonify({"error": "An unexpected internal error occurred"}), 500
-# --- END REFURBISHED STOP ROUTE ---
+        logger.critical(f"Erreur inattendue lors de la création du conteneur pour l'utilisateur {user_id}: {e}", exc_info=True)
+        return jsonify({"message": f"Erreur interne du serveur: {str(e)}"}), 500
 
-@container_bp.route('/<int:container_db_id>/start', methods=['POST'])
+@container_bp.route('/<string:container_id>/start', methods=['POST'])
 @jwt_required()
-def start_container(container_db_id):
-    logger.info(f"Received request to start container with DB ID: {container_db_id}")
-
-    current_user_id = get_jwt_identity()
-    logger.debug(f"Current user ID from JWT: {current_user_id}")
-
-    container = Container.query.filter_by(id=container_db_id, user_id=current_user_id).first()
-
+def start_container(container_id):
+    user_id = get_jwt_identity()
+    container = Container.query.filter_by(docker_container_id=container_id, user_id=int(user_id)).first()
     if not container:
-        logger.warning(f"Container with DB ID {container_db_id} not found or not owned by user {current_user_id}.")
-        return jsonify({"error": "Container not found or not authorized"}), 404
-
-    if not current_app.docker_service or not current_app.docker_service._check_client():
-        logger.error("Docker service is not initialized or client is not available.")
-        return jsonify({"error": "Docker service is not available"}), 503
-
+        logger.warning(f"Tentative de démarrage de conteneur non autorisé ou inexistant: Docker ID={container_id}, UserID={user_id}")
+        return jsonify({"message": "Conteneur non trouvé ou non autorisé"}), 404
+    if not current_app.docker_service or not current_app.docker_service.client:
+        logger.error("DockerService non initialisé ou client Docker non disponible.")
+        return jsonify({"message": "Service Docker non disponible"}), 500
     try:
-        logger.info(f"Attempting to start Docker container '{container.name}' (Docker ID: {container.docker_container_id})")
-        current_app.docker_service.start_container(container.docker_container_id)
-
-        # After successful start, get the actual updated status from Docker
-        updated_docker_status = current_app.docker_service.get_container_status(container.docker_container_id)
-
-        # Update DB status
-        container.status = updated_docker_status if updated_docker_status else "unknown"
+        current_app.docker_service.start_container(container_id)
+        container.status = 'running'
         db.session.commit()
-        logger.info(f"Container {container.name} (DB ID: {container_db_id}) status updated to '{container.status}' in DB.")
-
-        return jsonify({
-            "message": "Container started successfully",
-            "container": container_schema.dump(container)
-        }), 200
-
-    except NotFound:
-        db.session.rollback()
-        logger.error(f"Container '{container.docker_container_id}' not found on Docker daemon for starting.")
-        return jsonify({"error": "Container not found on Docker daemon"}), 404
-    except APIError as e:
-        db.session.rollback()
-        logger.error(f"Docker API error starting container {container.docker_container_id}: {e}", exc_info=True)
-        return jsonify({"error": f"Docker API error: {e}"}), 500
+        if container.owner:
+            logger.info(f"Conteneur '{container.name}' (Docker ID: {container_id}) démarré par l'utilisateur {container.owner.username}.")
+        else:
+            logger.info(f"Conteneur '{container.name}' (Docker ID: {container_id}) démarré par l'utilisateur (ID: {user_id}).")
+        return jsonify({"message": "Conteneur démarré avec succès"}), 200
     except Exception as e:
         db.session.rollback()
-        logger.critical(f"An unexpected error occurred while starting container {container_db_id}: {e}", exc_info=True)
-        return jsonify({"error": "An unexpected internal error occurred"}), 500
-# --- END NEW ROUTE ---
+        logger.critical(f"Erreur lors du démarrage du conteneur {container_id} pour l'utilisateur {user_id}: {e}", exc_info=True)
+        return jsonify({"message": f"Erreur interne du serveur: {str(e)}"}), 500
 
-@container_bp.route('/<int:container_db_id>/remove', methods=['DELETE']) # Using DELETE method for removal
+@container_bp.route('/<string:container_id>/stop', methods=['POST'])
 @jwt_required()
-def remove_container(container_db_id):
-    logger.info(f"Received request to remove container with DB ID: {container_db_id}")
-
-    current_user_id = get_jwt_identity()
-    logger.debug(f"Current user ID from JWT: {current_user_id}")
-
-    container = Container.query.filter_by(id=container_db_id, user_id=current_user_id).first()
-
+def stop_container(container_id):
+    user_id = get_jwt_identity()
+    container = Container.query.filter_by(docker_container_id=container_id, user_id=int(user_id)).first()
     if not container:
-        logger.warning(f"Container with DB ID {container_db_id} not found or not owned by user {current_user_id}.")
-        return jsonify({"error": "Container not found or not authorized"}), 404
+        logger.warning(f"Tentative d'arrêt de conteneur non autorisé ou inexistant: Docker ID={container_id}, UserID={user_id}")
+        return jsonify({"message": "Conteneur non trouvé ou non autorisé"}), 404
+    if not current_app.docker_service or not current_app.docker_service.client:
+        logger.error("DockerService non initialisé ou client Docker non disponible.")
+        return jsonify({"message": "Service Docker non disponible"}), 500
+    try:
+        current_app.docker_service.stop_container(container_id)
+        container.status = 'exited'
+        db.session.commit()
+        if container.owner:
+            logger.info(f"Conteneur '{container.name}' (Docker ID: {container_id}) arrêté par l'utilisateur {container.owner.username}.")
+        else:
+            logger.info(f"Conteneur '{container.name}' (Docker ID: {container_id}) arrêté par l'utilisateur (ID: {user_id}).")
+        return jsonify({"message": "Conteneur arrêté avec succès"}), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.critical(f"Erreur lors de l'arrêt du conteneur {container_id} pour l'utilisateur {user_id}: {e}", exc_info=True)
+        return jsonify({"message": f"Erreur interne du serveur: {str(e)}"}), 500
 
-    if not current_app.docker_service or not current_app.docker_service._check_client():
-        logger.error("Docker service is not initialized or client is not available.")
-        return jsonify({"error": "Docker service is not available"}), 503
+@container_bp.route('/<string:container_id>/remove', methods=['DELETE'])
+@jwt_required()
+def remove_container(container_id):
+    user_id = get_jwt_identity()
 
     try:
-        logger.info(f"Attempting to remove Docker container '{container.name}' (Docker ID: {container.docker_container_id})")
-        # Call the docker_service method to remove the container from Docker
-        current_app.docker_service.remove_container(container.docker_container_id)
+        # Find the container in the database.
+        container = Container.query.filter_by(docker_container_id=container_id, user_id=int(user_id)).first()
 
-        # If Docker removal is successful, delete the record from the database
+        if not container:
+            logger.warning(f"Tentative de suppression de conteneur non autorisé ou inexistant: Docker ID={container_id}, UserID={user_id}")
+            return jsonify({"message": "Conteneur non trouvé ou non autorisé"}), 404
+
+        # Log the container name and owner's name BEFORE deleting the object
+        owner_username = container.owner.username if container.owner else f"ID: {user_id}"
+        log_message = f"Conteneur '{container.name}' (Docker ID: {container_id}) supprimé par l'utilisateur {owner_username}."
+
+        if not current_app.docker_service or not current_app.docker_service.client:
+            logger.error("DockerService non initialisé ou client Docker non disponible.")
+            # We can still delete from the database even if Docker is down.
+            db.session.delete(container)
+            db.session.commit()
+            logger.info(f"DockerService non disponible. Entrée de base de données supprimée pour le conteneur {container_id}.")
+            return jsonify({"message": "Service Docker non disponible. L'entrée du conteneur a été supprimée de la base de données."}), 200
+
+        # Attempt to delete the container from the Docker daemon first
+        try:
+            current_app.docker_service.delete_container(container_id)
+        except APIError as e:
+            if 'not found' in str(e).lower():
+                logger.warning(f"Conteneur {container_id} introuvable sur le daemon Docker, mais trouvé dans la DB. Suppression de la DB seule.")
+            else:
+                logger.error(f"Erreur lors de la suppression du conteneur Docker {container_id}: {e}")
+                return jsonify({"message": f"Erreur interne du serveur: Échec de la suppression du conteneur Docker: {str(e)}"}), 500
+
+        # If Docker removal was successful (or container was not found on Docker), delete from the database
         db.session.delete(container)
         db.session.commit()
-        logger.info(f"Container {container.name} (DB ID: {container_db_id}) successfully removed from Docker and DB.")
+        logger.info(log_message)
+        return jsonify({"message": "Conteneur supprimé avec succès"}), 200
 
-        return jsonify({
-            "message": "Container removed successfully",
-            "container_id": container_db_id, # Only return the ID, as the object is deleted
-            "docker_container_id": container.docker_container_id
-        }), 200
-
-    except NotFound:
-        db.session.rollback() # Rollback if delete fails after Docker call
-        logger.error(f"Container '{container.docker_container_id}' not found on Docker daemon for removal. DB record not deleted.")
-        return jsonify({"error": "Container not found on Docker daemon"}), 404
-    except APIError as e:
-        db.session.rollback()
-        logger.error(f"Docker API error removing container {container.docker_container_id}: {e}", exc_info=True)
-        return jsonify({"error": f"Docker API error: {e}"}), 500
     except Exception as e:
         db.session.rollback()
-        logger.critical(f"An unexpected error occurred while removing container {container_db_id}: {e}", exc_info=True)
-        return jsonify({"error": "An unexpected internal error occurred"}), 500
-# --- END NEW ROUTE ---
-@container_bp.route('/<int:container_db_id>/logs', methods=['GET'])
+        logger.critical(f"Erreur inattendue lors de la suppression du conteneur {container_id}: {e}", exc_info=True)
+        return jsonify({"message": f"Erreur interne du serveur: {str(e)}"}), 500
+        
+@container_bp.route('/list', methods=['GET'])
 @jwt_required()
-def get_container_logs_route(container_db_id): # Renamed to avoid conflict if any
-    logger.info(f"Received request to get logs for container with DB ID: {container_db_id}")
+def list_containers():
+    user_id = get_jwt_identity()
+    user = User.query.get(int(user_id))
 
-    current_user_id = get_jwt_identity()
-    logger.debug(f"Current user ID from JWT: {current_user_id}")
-
-    container = Container.query.filter_by(id=container_db_id, user_id=current_user_id).first()
-
-    if not container:
-        logger.warning(f"Container with DB ID {container_db_id} not found or not owned by user {current_user_id}.")
-        return jsonify({"error": "Container not found or not authorized"}), 404
-
-    if not current_app.docker_service or not current_app.docker_service._check_client():
-        logger.error("Docker service is not initialized or client is not available.")
-        return jsonify({"error": "Docker service is not available"}), 503
+    if not user:
+        return jsonify({"message": "Utilisateur non trouvé"}), 404
 
     try:
-        logger.info(f"Attempting to retrieve logs for Docker container '{container.name}' (Docker ID: {container.docker_container_id})")
-        logs = current_app.docker_service.get_container_logs(container.docker_container_id)
+        if not current_app.docker_service or not current_app.docker_service.client:
+            return jsonify({"message": "Service Docker non disponible"}), 500
 
-        return jsonify({
-            "container_id": container_db_id,
-            "docker_container_id": container.docker_container_id,
-            "logs": logs
-        }), 200
+        db_containers = Container.query.filter_by(user_id=user.id).all()
 
-    except NotFound:
-        logger.error(f"Container '{container.docker_container_id}' not found on Docker daemon for logs retrieval.")
-        return jsonify({"error": "Container not found on Docker daemon"}), 404
-    except APIError as e:
-        logger.error(f"Docker API error retrieving logs for container {container.docker_container_id}: {e}", exc_info=True)
-        return jsonify({"error": f"Docker API error: {e}"}), 500
+        docker_containers = current_app.docker_service.list_all_containers()
+
+        print(f"DEBUG: Conteneurs de la base de données: {[c.docker_container_id for c in db_containers]}")
+        print(f"DEBUG: Conteneurs du daemon Docker: {[c.get('id') for c in docker_containers]}")
+
+        response_data = []
+        for db_container in db_containers:
+            docker_info = next((c for c in docker_containers if c.get('id') == db_container.docker_container_id), None)
+            status = docker_info.get('status', 'not found') if docker_info else 'not found'
+            
+            try:
+                parsed_ports = json.loads(db_container.ports) if db_container.ports else []
+            except (json.JSONDecodeError, TypeError):
+                parsed_ports = []
+            
+            try:
+                parsed_environment = json.loads(db_container.environment) if db_container.environment else {}
+            except (json.JSONDecodeError, TypeError):
+                parsed_environment = {}
+
+            response_data.append({
+                "id": db_container.id,
+                "docker_id": db_container.docker_container_id,
+                "name": db_container.name,
+                "image": db_container.image,
+                "status": status,
+                "ports": parsed_ports,
+                "environment": parsed_environment
+            })
+
+        return jsonify(response_data), 200
+
     except Exception as e:
-        logger.critical(f"An unexpected error occurred while retrieving logs for container {container_db_id}: {e}", exc_info=True)
-        return jsonify({"error": "An unexpected internal error occurred"}), 500
-# --- END NEW ROUTE ---
-@container_bp.route('/<int:container_db_id>', methods=['GET']) # Note: This is a GET request to the base ID endpoint
-@jwt_required()
-def get_container_details(container_db_id):
-    logger.info(f"Received request to get details for container with DB ID: {container_db_id}")
-
-    current_user_id = get_jwt_identity()
-    logger.debug(f"Current user ID from JWT: {current_user_id}")
-
-    container_db_record = Container.query.filter_by(id=container_db_id, user_id=current_user_id).first()
-
-    if not container_db_record:
-        logger.warning(f"Container with DB ID {container_db_id} not found or not owned by user {current_user_id}.")
-        return jsonify({"error": "Container not found or not authorized"}), 404
-
-    if not current_app.docker_service or not current_app.docker_service._check_client():
-        logger.error("Docker service is not initialized or client is not available.")
-        return jsonify({"error": "Docker service is not available"}), 503
-
-    try:
-        logger.info(f"Attempting to inspect Docker container '{container_db_record.name}' (Docker ID: {container_db_record.docker_container_id})")
-        
-        # Get the Docker container object directly
-        docker_container = current_app.docker_service.client.containers.get(container_db_record.docker_container_id) # type: ignore [union-attr]
-
-        # Refresh its attributes to get the latest state
-        docker_container.reload()
-
-        # Combine database info with selected Docker daemon info
-        details = {
-            "id": container_db_record.id,
-            "name": container_db_record.name,
-            "image": container_db_record.image,
-            "docker_container_id": container_db_record.docker_container_id,
-            "status": docker_container.status, # Live status from Docker
-            "ports": container_db_record.ports, # From DB, as it's the requested mapping
-            "created_at_db": container_db_record.created_at.isoformat(), # DB creation timestamp
-            "updated_at_db": container_db_record.updated_at.isoformat(), # DB last update timestamp
-            "user_id": container_db_record.user_id,
-            "docker_info": { # More detailed info directly from Docker inspect
-                "State": docker_container.attrs.get('State'),
-                "NetworkSettings": docker_container.attrs.get('NetworkSettings'),
-                "Config": docker_container.attrs.get('Config')
-                # You can add more fields from docker_container.attrs as needed
-            }
-        }
-        
-        # Update DB record with live status just in case (optional, but good for consistency)
-        if container_db_record.status != docker_container.status:
-            container_db_record.status = docker_container.status
-            db.session.commit()
-            logger.info(f"Container {container_db_id} status updated to '{docker_container.status}' during details retrieval.")
-
-
-        return jsonify(details), 200
-
-    except NotFound:
-        # If container not found on Docker daemon, maybe it was manually removed
-        logger.error(f"Container '{container_db_record.docker_container_id}' not found on Docker daemon. Removing from DB.")
-        db.session.delete(container_db_record)
-        db.session.commit()
-        return jsonify({"error": "Container found in DB but not on Docker daemon, record removed."}), 404
-    except APIError as e:
-        logger.error(f"Docker API error getting details for container {container_db_record.docker_container_id}: {e}", exc_info=True)
-        return jsonify({"error": f"Docker API error: {e}"}), 500
-    except Exception as e:
-        logger.critical(f"An unexpected error occurred while getting details for container {container_db_id}: {e}", exc_info=True)
-        return jsonify({"error": "An unexpected internal error occurred"}), 500
-# --- END NEW ROUTE ---
+        logger.error(f"Erreur lors de la récupération des conteneurs pour l'utilisateur {user.username}: {e}", exc_info=True)
+        return jsonify({"message": "Erreur interne du serveur lors de la récupération des conteneurs"}), 500

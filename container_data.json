@@ -1,0 +1,11 @@
+{
+    "container_name": "MyFirstContainer",
+    "image_name": "nginx",
+    "port_bindings": {
+        "80/tcp": 8080
+    },
+    "environment": {},
+    "volumes": {},
+    "network": "bridge",
+    "command": ""
+}
