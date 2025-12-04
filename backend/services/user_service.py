@@ -2,9 +2,9 @@ import logging
 import secrets 
 from datetime import datetime, timedelta
 from sqlalchemy.exc import IntegrityError
-from backend.database import db
-from backend.models import User
-from backend.exceptions import UserNotFoundException, InvalidCredentialsException, APIException, \
+from database import db
+from models import User
+from exceptions import UserNotFoundException, InvalidCredentialsException, APIException, \
     TokenExpiredException, InvalidTokenException
 class UserService:
     def __init__(self, app_logger: logging.Logger):

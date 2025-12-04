@@ -1,86 +1,124 @@
-# backend/app.py
-
 import os
 import logging
 from logging.handlers import RotatingFileHandler
-from flask import Flask, jsonify, current_app, request
+from flask import Flask, jsonify, request
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from flask_cors import CORS
-from backend.models import User, Container
-from backend.config import Config
-from backend.services.docker_service import DockerService
-from backend.database import db, migrate
+from models import User, Container
+from config import Config
+from services.docker_service import DockerService
+from database import db, migrate
 
-# Ensure that the models are imported so Alembic can detect them
-# This is a crucial step for migrations to work correctly.
-# from models import User, Container
 
-# Initialize JWT Manager
+class CustomFlask(Flask):
+    docker_service: DockerService | None = None
+
+
 jwt = JWTManager()
 
-def create_app(config_class=Config):
-    # Create the Flask application instance
-    app = Flask(__name__)
 
-    # Load configuration from the Config object
+def create_app(config_class=Config):
+    app = CustomFlask(__name__)
     app.config.from_object(config_class)
 
-    # Enable CORS for frontend communication
-    CORS(app, resources={r"/api/*": {"origins": "http://localhost:3002"}})
+    # ✅ CORS configuration (Codespaces, Docker, etc.)
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": ["https://*.app.github.dev"]}},
+        supports_credentials=True,
+        allow_headers=["Content-Type", "Authorization", "Cache-Control"],
+        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    )
 
-    # Initialize extensions with the app instance
+    # ✅ Gestion des requêtes OPTIONS (préflight)
+    @app.before_request
+    def handle_options():
+        if request.method == "OPTIONS":
+            response = jsonify({"status": "ok"})
+            origin = request.headers.get("Origin")
+            if origin:
+                response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Headers"] = (
+                "Content-Type, Authorization, Cache-Control"
+            )
+            response.headers["Access-Control-Allow-Methods"] = (
+                "GET, POST, PUT, DELETE, OPTIONS"
+            )
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            return response, 200
+
+    # ✅ Headers CORS post-réponse
+    @app.after_request
+    def add_cors_headers(response):
+        origin = request.headers.get("Origin")
+        if origin and "app.github.dev" in origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+        else:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+
+        response.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, Authorization, Cache-Control"
+        )
+        response.headers["Access-Control-Allow-Methods"] = (
+            "GET, POST, PUT, DELETE, OPTIONS"
+        )
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
+
+    # 🔧 Initialisation des extensions
     db.init_app(app)
     jwt.init_app(app)
     migrate.init_app(app, db)
-    
-    # Configure logging for the application
+
+    # ✅ Logging configuration
     if not app.debug and not app.testing:
-        if not os.path.exists('logs'):
-            os.mkdir('logs')
-        file_handler = RotatingFileHandler('logs/platform_saas.log', maxBytes=10240, backupCount=10)
+        if not os.path.exists("logs"):
+            os.mkdir("logs")
+        file_handler = RotatingFileHandler(
+            "logs/platform_saas.log", maxBytes=10240, backupCount=10
+        )
         file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+            "%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]"
         ))
         file_handler.setLevel(logging.INFO)
         app.logger.addHandler(file_handler)
         app.logger.setLevel(logging.INFO)
-        app.logger.info('Platform SaaS application started.')
-    
-    # Initialize the Docker service
+        app.logger.info("Platform SaaS started")
+
+    # ✅ Docker Service
     try:
-        app.docker_service = DockerService(app_logger=app.logger, docker_host_uri=app.config.get('DOCKER_HOST_URI'))
-        if not app.docker_service.client:
-            app.logger.error("Docker client failed to initialize. Container management will not be available.")
+        app.docker_service = DockerService(
+            app_logger=app.logger,
+            docker_host_uri=app.config.get("DOCKER_HOST_URI")
+        )
+        app.logger.info("Docker client connecté ✅")
     except Exception as e:
-        app.logger.critical(f"Error during DockerService initialization: {e}", exc_info=True)
+        app.logger.critical(f"Docker init error: {e}", exc_info=True)
         app.docker_service = None
 
-    # Import and register blueprints
-    from backend.routes.auth_routes import auth_bp
-    from backend.routes.container_routes import container_bp
-    app.register_blueprint(auth_bp, url_prefix='/api/auth')
-    app.register_blueprint(container_bp, url_prefix='/api/containers')
+    # ✅ Blueprints
+    from routes.auth_routes import auth_bp
+    from routes.container_routes import container_bp
+    app.register_blueprint(auth_bp, url_prefix="/api/auth")
+    app.register_blueprint(container_bp, url_prefix="/api/containers")
 
-    # Basic root route for health check
-    @app.route('/')
+    # ✅ Healthcheck simple
+    @app.route("/api/health", methods=["GET"])
+    def health_check():
+        docker_ok = app.docker_service is not None
+        return jsonify({"status": "ok", "docker": docker_ok}), 200
+
+    # 🏠 Route d’accueil
+    @app.route("/")
     def home():
-        return jsonify({"message": "Welcome to the Platform SaaS API! The server is running."}), 200
-
-    # Error handling routes
-    @app.errorhandler(404)
-    def not_found_error(error):
-        app.logger.warning(f"Resource not found: {request.path}")
-        return jsonify({"error": "Not Found", "message": "The requested resource does not exist."}), 404
-
-    @app.errorhandler(500)
-    def internal_server_error(e):
-        app.logger.critical(f"Internal server error: {e}", exc_info=True)
-        return jsonify({"error": "Internal Server Error", "message": "An unexpected server error occurred."}), 500
+        return jsonify({"message": "Platform SaaS API running"}), 200
 
     return app
 
+
+# ✅ Main entry
 app = create_app()
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)

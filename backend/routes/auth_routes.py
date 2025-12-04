@@ -2,9 +2,9 @@ import logging
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from marshmallow import ValidationError
-from backend.database import db
-from backend.models import User
-from backend.schemas import (
+from database import db
+from models import User
+from schemas import (
     user_register_schema, user_login_schema, user_schema,
     ForgotPasswordRequestSchema, ResetPasswordSchema
 )

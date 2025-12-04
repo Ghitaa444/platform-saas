@@ -1,142 +1,180 @@
-import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { FaPlus, FaPowerOff, FaStop, FaRedo, FaTrashAlt } from 'react-icons/fa';
-import { useNavigate } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
-import LoadingSpinner from '../components/LoadingSpinner';
-import * as containerService from '../services/containerService';
-import { toast } from 'react-toastify';
-
-// Composant IconButton réutilisable
-function IconButton({ icon, onClick, color, hover, title }) {
-    return (
-        <button
-            onClick={onClick}
-            className={`p-3 text-white rounded-full shadow-md transition-all transform hover:scale-110 ${color} ${hover}`}
-            title={title}
-            aria-label={title}
-        >
-            {icon}
-        </button>
-    );
-}
+import React, { useEffect, useState } from "react";
+import Navbar from "../components/Navbar";
+import ContainerCard from "../components/ContainerCard";
+import LoadingSpinner from "../components/LoadingSpinner";
+import { motion } from "framer-motion";
+import { getContainers, performAction, getContainerStats } from "../services/containerService";
+import { toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 export default function Dashboard() {
-    const navigate = useNavigate();
-    const [containers, setContainers] = useState([]);
-    const [loading, setLoading] = useState(true);
+  const [containers, setContainers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-    useEffect(() => {
-        fetchContainers();
-    }, []);
+  // 🔹 Fetch container list
+  const fetchContainers = async () => {
+    try {
+      const data = await getContainers();
+      const list = data.containers || data || [];
+      setContainers(list);
+      setError(null);
+    } catch (err) {
+      console.error("Erreur lors du chargement des conteneurs :", err);
+      setError("Impossible de charger les conteneurs. Vérifie que le backend est bien en ligne.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const fetchContainers = async () => {
-        try {
-            const response = await containerService.getContainers();
-            setContainers(response.containers || []);
-        } catch (error) {
-            toast.error(error.message || 'Erreur lors du chargement des conteneurs.');
-        } finally {
-            setLoading(false);
-        }
-    };
+  // 🔹 Fetch stats for all containers
+  const updateStats = async () => {
+    try {
+      const updated = await Promise.all(
+        containers.map(async (container) => {
+          try {
+            const stats = await getContainerStats(container.docker_id || container.Id);
+            return {
+              ...container,
+              cpu: `${stats.cpu_percent?.toFixed(1) || 0}%`,
+              memory: `${stats.memory_percent?.toFixed(1) || 0}%`,
+              uptime: stats.uptime || container.Status || "—",
+              cpuHistory: [...(container.cpuHistory || []), stats.cpu_percent || 0].slice(-15),
+              ramHistory: [...(container.ramHistory || []), stats.memory_percent || 0].slice(-15),
+            };
+          } catch {
+            return container;
+          }
+        })
+      );
+      setContainers(updated);
+    } catch (err) {
+      console.warn("Erreur lors de la mise à jour des stats :", err);
+    }
+  };
 
-    const handleAction = async (containerId, action) => {
-        try {
-            await containerService.performAction(containerId, action);
-            toast.success(`Action "${action}" réussie.`);
-            fetchContainers();
-        } catch (error) {
-            toast.error(error.message || `Échec de l'action "${action}".`);
-        }
-    };
+  // 🔁 Initial load + refresh
+  useEffect(() => {
+    fetchContainers();
+  }, []);
 
-    return (
-        <div className="flex min-h-screen bg-background font-sans text-text">
-            <Sidebar />
-            <main className="flex-1 p-10">
-                <header className="flex justify-between items-center mb-10 border-b pb-4">
-                    <h1 className="text-4xl font-bold text-text">Tableau de bord</h1>
-                    <button
-                        onClick={() => navigate('/create-container')}
-                        className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl shadow-md hover:bg-primary-dark transition-all duration-300 hover:scale-105"
-                    >
-                        <FaPlus /> Nouveau conteneur
-                    </button>
-                </header>
+  // 🔄 Update stats every 5 seconds
+  useEffect(() => {
+    if (containers.length > 0) {
+      const interval = setInterval(updateStats, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [containers]);
 
-                {loading ? (
-                    <div className="flex justify-center items-center h-64">
-                        <LoadingSpinner size="w-12 h-12" color="text-primary" />
-                    </div>
-                ) : (
-                    <motion.section
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ duration: 0.4 }}
-                        className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
-                    >
-                        {containers.length > 0 ? (
-                            containers.map((container) => (
-                                <motion.div
-                                    key={container.id}
-                                    className="bg-card p-6 rounded-2xl shadow-xl border border-gray-100 hover:shadow-2xl transition-shadow duration-300"
-                                    whileHover={{ y: -4 }}
-                                >
-                                    <div className="flex justify-between items-start mb-2">
-                                        <h2 className="text-xl font-semibold">{container.name}</h2>
-                                        <span
-                                            className={`px-3 py-1 text-xs font-semibold rounded-full ${
-                                                container.status === 'running'
-                                                    ? 'bg-accent text-white'
-                                                    : 'bg-secondary-light text-secondary-dark'
-                                            }`}
-                                        >
-                                            {container.status}
-                                        </span>
-                                    </div>
-                                    <p className="text-sm text-secondary">{container.image}</p>
+  // 🟢 Start
+  const handleStart = async (id) => {
+    try {
+      toast.info("Démarrage du conteneur...");
+      await performAction(id, "start");
+      toast.success("Conteneur démarré ✅");
+      fetchContainers();
+    } catch {
+      toast.error("Échec du démarrage ❌");
+    }
+  };
 
-                                    <div className="flex justify-start gap-3 mt-6">
-                                        <IconButton
-                                            icon={<FaPowerOff />}
-                                            onClick={() => handleAction(container.id, 'start')}
-                                            color="bg-accent"
-                                            hover="hover:bg-green-600"
-                                            title="Démarrer"
-                                        />
-                                        <IconButton
-                                            icon={<FaStop />}
-                                            onClick={() => handleAction(container.id, 'stop')}
-                                            color="bg-yellow-500"
-                                            hover="hover:bg-yellow-600"
-                                            title="Arrêter"
-                                        />
-                                        <IconButton
-                                            icon={<FaRedo />}
-                                            onClick={() => handleAction(container.id, 'restart')}
-                                            color="bg-primary"
-                                            hover="hover:bg-primary-dark"
-                                            title="Redémarrer"
-                                        />
-                                        <IconButton
-                                            icon={<FaTrashAlt />}
-                                            onClick={() => handleAction(container.id, 'remove')}
-                                            color="bg-red-500"
-                                            hover="hover:bg-red-600"
-                                            title="Supprimer"
-                                        />
-                                    </div>
-                                </motion.div>
-                            ))
-                        ) : (
-                            <div className="col-span-full text-center py-12 bg-card rounded-xl shadow-md text-secondary">
-                                Aucun conteneur trouvé. Déployez votre premier.
-                            </div>
-                        )}
-                    </motion.section>
-                )}
-            </main>
-        </div>
-    );
+  // 🔴 Stop
+  const handleStop = async (id) => {
+    try {
+      toast.info("Arrêt du conteneur...");
+      await performAction(id, "stop");
+      toast.success("Conteneur arrêté 💤");
+      fetchContainers();
+    } catch {
+      toast.error("Erreur lors de l’arrêt ❌");
+    }
+  };
+
+  // 🗑️ Delete
+  const handleDelete = async (id) => {
+    if (!window.confirm("Supprimer ce conteneur ?")) return;
+    try {
+      toast.info("Suppression du conteneur...");
+      await performAction(id, "remove");
+      toast.success("Conteneur supprimé 🗑️");
+      fetchContainers();
+    } catch {
+      toast.error("Erreur lors de la suppression ❌");
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-railway-gradient text-text">
+      <Navbar />
+      <div className="pt-24 px-6 md:px-12">
+        <motion.h1
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="text-3xl font-bold text-text-light mb-6"
+        >
+          Dashboard
+        </motion.h1>
+
+        {loading ? (
+          <LoadingSpinner />
+        ) : error ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="bg-red-500/10 border border-red-500 text-red-400 rounded-xl p-4 max-w-lg"
+          >
+            {error}
+          </motion.div>
+        ) : containers.length === 0 ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center text-gray-400 mt-10"
+          >
+            Aucun conteneur n’a encore été déployé.
+          </motion.div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            {containers.map((container, i) => (
+              <ContainerCard
+                key={container.Id || container.docker_id || i}
+                id={container.docker_id || container.Id || i}
+                name={container.Names?.[0]?.replace("/", "") || container.name}
+                image={container.Image || container.image}
+                cpu={container.cpu}
+                memory={container.memory}
+                cpuHistory={container.cpuHistory}
+                ramHistory={container.ramHistory}
+                ports={
+                  container.Ports?.map(
+                    (p) => `${p.PublicPort || p.PrivatePort}:${p.PrivatePort}`
+                  ).join(", ") ||
+                  (Array.isArray(container.ports)
+                    ? container.ports.join(", ")
+                    : container.ports) ||
+                  "—"
+                }
+                uptime={container.uptime || container.Status || "—"}
+                status={
+                  container.State === "running" ||
+                  container.status === "running"
+                    ? "running"
+                    : "stopped"
+                }
+                onStart={handleStart}
+                onStop={handleStop}
+                onRemove={handleDelete}
+              />
+            ))}
+          </motion.div>
+        )}
+      </div>
+    </div>
+  );
 }
