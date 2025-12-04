@@ -18,3 +18,4 @@ __pycache__/
 
 # Fichiers logs (si vous en générez)
 *.log
+node_modules/
