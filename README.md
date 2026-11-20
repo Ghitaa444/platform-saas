@@ -1,6 +1,6 @@
 # 🚀 SaaS Platform for Automated Docker Container Deployment
 
-A web-based SaaS platform designed to simplify, automate, and secure Docker container deployment and management through an intuitive interface.
+A web-based SaaS platform designed to simplify, automate, and secure Docker container deployment and management through an intuitive user interface.
 
 Developed as an engineering internship project at **ONDA – National Office of Airports (Marrakech Menara Airport)**.
 
@@ -8,17 +8,17 @@ Developed as an engineering internship project at **ONDA – National Office of 
 
 ## 📋 Table of Contents
 
-- [Overview](#-overview)
-- [Key Features](#-key-features)
-- [System Architecture](#-system-architecture)
-- [Technologies Used](#-technologies-used)
-- [Project Structure](#-project-structure)
-- [Application Screenshots](#-application-screenshots)
-- [Installation & Setup](#-installation--setup)
-- [Environment Variables](#-environment-variables)
-- [Docker Deployment](#-docker-deployment)
-- [Future Improvements](#-future-improvements)
-- [Author](#-author)
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [System Architecture](#system-architecture)
+- [Technologies Used](#technologies-used)
+- [Project Structure](#project-structure)
+- [Application Screenshots](#application-screenshots)
+- [Installation & Setup](#installation--setup)
+- [Environment Variables](#environment-variables)
+- [Docker Deployment](#docker-deployment)
+- [Future Improvements](#future-improvements)
+- [Author](#author)
 
 ---
 
@@ -28,9 +28,9 @@ Managing containerized applications manually through command-line interfaces can
 
 This project provides a centralized SaaS platform that simplifies Docker container management through a user-friendly web interface.
 
-The platform enables technical teams to deploy, monitor, and manage Docker containers while benefiting from secure authentication, centralized management, and automated deployment workflows.
+The platform enables technical teams to deploy, monitor, and manage Docker containers while benefiting from secure authentication and centralized management.
 
-The application follows a modular architecture combining a React frontend, a Flask REST API, PostgreSQL database, and Docker-based infrastructure.
+The application combines a React frontend, a Flask REST API, PostgreSQL database, and Docker-based infrastructure.
 
 ---
 
@@ -99,7 +99,6 @@ flowchart TD
 
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-000000?style=flat&logo=flask&logoColor=white)
-![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-D71F00?style=flat)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)
 
 - Python
@@ -170,18 +169,17 @@ plateforme-saaS/
 │       └── package.json
 │
 ├── images/
-│   ├── connexion.png
-│   ├── tableau de bord.png
-│   ├── déployer.png
-│   ├── profil.png
-│   └── sécurité.png
+│   ├── login.png
+│   ├── dashboard.png
+│   ├── deploy.png
+│   ├── profile.png
+│   └── security.png
 │
 ├── migrations/
 ├── traefik/
 │   └── traefik.yml
 │
 ├── docker-compose.yml
-├── container_data.json
 └── README.md
 ```
 
@@ -191,34 +189,34 @@ plateforme-saaS/
 
 Explore the main interfaces of the platform.
 
-### 🔐 Authentication
+### 🔐 Login & Authentication
 
 <p align="center">
-  <img src="images/connexion.png" alt="Login and Authentication Interface" width="850"/>
+  <img src="images/login.png" alt="Login Interface" width="850"/>
 </p>
 
 ### 📊 Dashboard & Container Monitoring
 
 <p align="center">
-  <img src="images/tableau%20de%20bord.png" alt="Dashboard Interface" width="850"/>
+  <img src="images/dashboard.png" alt="Dashboard Interface" width="850"/>
 </p>
 
 ### 🚀 Container Deployment
 
 <p align="center">
-  <img src="images/d%C3%A9ployer.png" alt="Container Deployment Interface" width="850"/>
+  <img src="images/deploy.png" alt="Container Deployment Interface" width="850"/>
 </p>
 
 ### 👤 User Profile
 
 <p align="center">
-  <img src="images/profil.png" alt="User Profile Interface" width="850"/>
+  <img src="images/profile.png" alt="User Profile Interface" width="850"/>
 </p>
 
 ### 🔒 Security Settings
 
 <p align="center">
-  <img src="images/s%C3%A9curit%C3%A9.png" alt="Security Settings Interface" width="850"/>
+  <img src="images/security.png" alt="Security Settings Interface" width="850"/>
 </p>
 
 ---
@@ -229,9 +227,9 @@ Explore the main interfaces of the platform.
 
 Make sure the following tools are installed:
 
-- [Git](https://git-scm.com/)
-- [Docker](https://www.docker.com/)
-- [Docker Compose](https://docs.docker.com/compose/)
+- Git
+- Docker
+- Docker Compose
 
 ### 1. Clone the Repository
 
@@ -249,8 +247,6 @@ Configure the required environment variables as described in the next section.
 
 ### 3. Build and Start the Application
 
-Using Docker Compose:
-
 ```bash
 docker compose up --build
 ```
@@ -263,17 +259,14 @@ Open your browser and navigate to the local address configured in your Docker Co
 
 ## 🔑 Environment Variables
 
-The application uses environment variables to manage configuration and sensitive credentials.
+Create a `.env` file in the root directory.
 
-Example `.env` configuration:
+Example configuration:
 
 ```env
 SECRET_KEY=your_flask_secret_key
-
 JWT_SECRET_KEY=your_jwt_secret_key
-
 DATABASE_URL=postgresql://username:password@db-service:5432/saas_db
-
 FLASK_ENV=development
 ```
 
@@ -324,7 +317,7 @@ docker compose down
 
 Potential enhancements for future versions include:
 
-- **Advanced Monitoring:** Integrating Prometheus and Grafana for detailed container resource monitoring.
+- **Advanced Monitoring:** Integrating Prometheus and Grafana for container resource monitoring.
 - **CI/CD Automation:** Implementing automated testing and deployment pipelines using GitHub Actions.
 - **Resource Management:** Adding advanced CPU and memory usage monitoring.
 - **Scalability:** Improving infrastructure to support larger deployment workloads.
@@ -336,7 +329,8 @@ Potential enhancements for future versions include:
 
 **Ghita EL Finou**
 
-AI Engineering & Data Science Student  
+AI Engineering & Data Science Student
+
 Backend Development | Artificial Intelligence | DevOps
 
 - GitHub: [@Ghitaa444](https://github.com/Ghitaa444)
