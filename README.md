@@ -80,3 +80,21 @@ The platform follows a modular **Client-Server REST architecture** structured in
 ├── docker-compose.yml           # Multi-container orchestration file
 ├── container_data.json          # Container metadata reference
 └── container_startup_logs.txt   # Container initialization logs
+## 📷 Screenshots
+
+Here is a quick preview of the SaaS Platform interface:
+
+###  Login & Authentication
+![Login Page](./images/Capture%20d'écran%202026-11-20%20165445.png)
+
+###  User Settings (Profile)
+![Settings Profile](./images/Capture%20d'écran%202026-11-20%20180948.png)
+
+###  User Settings (Security)
+![Security Settings](./images/Capture%20d'écran%202026-11-20%20181159.png)
+
+### Create Container
+![Create Container](./images/Capture%20d'écran%202026-11-20%20181228.png)
+
+###  Dashboard & Running Containers
+![Dashboard](./images/Capture%20d'écran%202026-11-20%20181312.png)
