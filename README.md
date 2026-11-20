@@ -80,21 +80,55 @@ The platform follows a modular **Client-Server REST architecture** structured in
 ├── docker-compose.yml           # Multi-container orchestration file
 ├── container_data.json          # Container metadata reference
 └── container_startup_logs.txt   # Container initialization logs
-## 📷 Screenshots
-
+6. 📷 Screenshots
 Here is a quick preview of the SaaS Platform interface:
 
-###  Login & Authentication
-![Login Page](./images/Capture%20d'écran%202026-11-20%20165445.png)
+🔐 Login & Authentication
+⚙️ User Settings (Profile)
+🔒 User Settings (Security)
+🚀 Create Container
+📊 Dashboard & Running Containers
+7. ⚙️ Installation & Setup
+To run this project locally for development:
 
-###  User Settings (Profile)
-![Settings Profile](./images/Capture%20d'écran%202026-11-20%20180948.png)
+Clone the repository:
 
-###  User Settings (Security)
-![Security Settings](./images/Capture%20d'écran%202026-11-20%20181159.png)
+Bash
+git clone [https://github.com/Ghitaa444/plateforme-saaS.git](https://github.com/Ghitaa444/plateforme-saaS.git)
+cd plateforme-saaS
+Configure Environment Variables:
+Create a .env file in the root directory (see section 8).
 
-### Create Container
-![Create Container](./images/Capture%20d'écran%202026-11-20%20181228.png)
+Run with Docker Compose (Recommended):
 
-###  Dashboard & Running Containers
-![Dashboard](./images/Capture%20d'écran%202026-11-20%20181312.png)
+Bash
+docker-compose up --build
+8. 🔑 Environment Variables
+Create a .env file in your root folder with the following configuration:
+
+Extrait de code
+SECRET_KEY=your_flask_secret_key
+JWT_SECRET_KEY=your_jwt_secret_key
+DATABASE_URL=postgresql://username:password@db-service:5432/saas_db
+FLASK_ENV=development
+9. 🐳 Docker Deployment
+The application is fully containerized. The docker-compose.yml orchestrates the main services:
+
+frontend: Serves the React + Vite interface via Nginx.
+
+backend: Runs the Flask REST API.
+
+db: Manages the PostgreSQL database inside an isolated internal network (saas_net).
+
+traefik: Handles reverse proxy routing.
+
+To launch in production mode on a cloud server:
+
+Bash
+docker-compose -f docker-compose.yml up -d --build
+10. 🔮 Future Improvements
+Advanced Monitoring: Integration of Prometheus and Grafana for resource utilization metrics (CPU/RAM per container).
+
+CI/CD Pipeline: Automated testing and continuous deployment via GitHub Actions.
+
+Auto-scaling: Dynamic scaling of backend worker nodes based on incoming requests load.
